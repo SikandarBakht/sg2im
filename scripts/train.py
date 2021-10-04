@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys 
+sys.path.append('/root/Sikandar/SG2IM/')
 import argparse
 import functools
 import os
@@ -30,7 +32,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from sg2im.data import imagenet_deprocess_batch
-from sg2im.data.coco import CocoSceneGraphDataset, coco_collate_fn
+#from sg2im.data.coco import CocoSceneGraphDataset, coco_collate_fn
 from sg2im.data.vg import VgSceneGraphDataset, vg_collate_fn
 from sg2im.discriminators import PatchDiscriminator, AcCropDiscriminator
 from sg2im.losses import get_gan_losses
@@ -139,7 +141,8 @@ parser.add_argument('--checkpoint_name', default='checkpoint')
 parser.add_argument('--checkpoint_start_from', default=None)
 parser.add_argument('--restore_from_checkpoint', default=False, type=bool_flag)
 
-
+parser.add_argument('--save_loss_metrics_every', default=1000, type=int)
+parser.add_argument('--loss_metric_filename', default='loss.json')
 def add_loss(total_loss, curr_loss, loss_dict, loss_name, weight=1):
   curr_loss = curr_loss * weight
   loss_dict[loss_name] = curr_loss.item()
@@ -498,7 +501,7 @@ def main(args):
       'd_img_state': None, 'd_img_best_state': None, 'd_img_optim_state': None,
       'best_t': [],
     }
-
+  History_dict = {}
   while True:
     if t >= args.num_iterations:
       break
@@ -590,6 +593,34 @@ def main(args):
         optimizer_d_img.zero_grad()
         d_img_losses.total_loss.backward()
         optimizer_d_img.step()
+      
+      G={}
+      for name, val in losses.items():
+        G.update({(str(name)):val})
+
+      D_obj = {}
+      if obj_discriminator is not None:
+          for name, val in d_obj_losses.items():
+            D_obj.update({(str(name)):val})
+
+      D_img = {}
+      if img_discriminator is not None:
+          for name, val in d_img_losses.items():
+            D_img.update({(str(name)):val})
+
+      History_dict[str(t)] = {"G":G, "D_obj": D_obj, "D_img":D_img}
+
+ 
+      if(t % args.save_loss_metrics_every):
+        if(t > args.save_loss_metrics_every):
+          out_dict = json.load(open(os.path.join(args.output_dir, args.loss_metric_filename)))
+          out_dict.update(History_dict)
+          with open(args.loss_metric_filename,"w") as outfile:
+              json.dump(out_dict, outfile)   
+        else:
+          with open(args.loss_metric_filename,"w") as outfile:
+              json.dump(History_dict, outfile)   
+      
 
       if t % args.print_every == 0:
         print('t = %d / %d' % (t, args.num_iterations))
